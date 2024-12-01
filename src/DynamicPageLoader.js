@@ -1,8 +1,10 @@
 class DynamicPageLoader {
 	constructor(config) {
+		this.fadeElementSelector = config.fadeElement; // Store the selector
 		this.fadeElement = document.querySelector(config.fadeElement);
 		this.loadingElement = document.querySelector(config.loadingElement);
 		this.linkClass = config.linkClass;
+		this.dontReload = config.dontReload || [];
 
 		this.init();
 	}
@@ -34,10 +36,15 @@ class DynamicPageLoader {
 			const html = await response.text();
 			const parser = new DOMParser();
 			const doc = parser.parseFromString(html, 'text/html');
+			//console.log(html);  // Debug: Check the page content
 
-			this.updateContent(doc);
-			this.updateMeta(doc);
-			this.updateTitle(doc);
+			// Start fade out and wait for it to complete
+			await this.fadeOut(this.fadeElement);
+			
+			this.updateStyles(doc); // Update stylesheets
+			this.updateContent(doc);  // Update page content
+			this.updateMeta(doc);     // Update meta tags
+			this.updateTitle(doc);    // Update the title
 
 			if (pushState) {
 				history.pushState({ url }, '', url);
@@ -49,36 +56,96 @@ class DynamicPageLoader {
 		}
 	}
 
+	updateContent(doc) {
+		// Get the content from the loaded document using the stored selector
+		const newContent = doc.querySelector(this.fadeElementSelector);
+		console.log('New content:', newContent);  // Debug: Ensure this is not null
+		if (newContent) {
+			this.fadeElement.innerHTML = newContent.innerHTML;
+			this.reloadScripts(doc);
+			// Fade in after content is updated
+			this.fadeIn(this.fadeElement);
+		} else {
+			console.error('No content found to replace. Selector:', this.fadeElementSelector);
+		}
+	}
+
 	showLoading() {
 		this.loadingElement.style.display = 'block';
-		this.fadeOut(this.fadeElement);
 	}
 
 	hideLoading() {
 		this.loadingElement.style.display = 'none';
-		this.fadeIn(this.fadeElement);
 	}
 
-	updateContent(doc) {
-		const newContent = doc.querySelector(this.fadeElement.tagName);
-		if (newContent) {
-			this.fadeElement.innerHTML = newContent.innerHTML;
-			this.reloadScripts(doc);
-		}
-	}
+	updateStyles(doc) {
+		// Remove old stylesheets that are not present in the new document
+		const existingLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
+		const newLinks = Array.from(doc.querySelectorAll('link[rel="stylesheet"]'));
 
-	reloadScripts(doc) {
-		const oldScripts = document.querySelectorAll('script');
-		oldScripts.forEach((script) => script.remove());
+		// Get URLs of the new stylesheets
+		const newLinkHrefs = newLinks.map(link => link.href);
 
-		const newScripts = doc.querySelectorAll('script');
-		newScripts.forEach((script) => {
-			const newScript = document.createElement('script');
-			newScript.src = script.src;
-			newScript.textContent = script.textContent;
-			document.body.appendChild(newScript);
+		// Remove old links that are not in the new document
+		existingLinks.forEach(link => {
+			if (!newLinkHrefs.includes(link.href)) {
+				link.remove();
+			}
+		});
+
+		// Add new stylesheets that are not already in the current document
+		newLinks.forEach(link => {
+			if (!existingLinks.some(existingLink => existingLink.href === link.href)) {
+				const newLink = document.createElement('link');
+				newLink.rel = 'stylesheet';
+				newLink.href = link.href;
+				document.head.appendChild(newLink);
+			}
 		});
 	}
+
+
+	reloadScripts(doc) {
+		const loadedScripts = Array.from(document.querySelectorAll('script')).map((script) => script.src);
+
+		// Ensure `dontReload` scripts are loaded if not already present
+		this.dontReload.forEach((url) => {
+			if (!loadedScripts.includes(url)) {
+				const newScript = document.createElement('script');
+				newScript.src = url;
+				newScript.async = false; // Adjust as necessary
+				document.body.appendChild(newScript);
+			}
+		});
+
+		// Remove old scripts not in `dontReload`
+		const oldScripts = document.querySelectorAll('script');
+		oldScripts.forEach((script) => {
+			if (!this.dontReload.includes(script.src)) {
+				script.remove();
+			}
+		});
+
+		// Add new scripts from the document
+		const newScripts = doc.querySelectorAll('script');
+		newScripts.forEach((script) => {
+			if (script.src) {
+				// Skip loading scripts already in `dontReload`
+				if (!this.dontReload.includes(script.src)) {
+					const newScript = document.createElement('script');
+					newScript.src = script.src;
+					newScript.async = script.async || false; // Preserve async attribute if present
+					document.body.appendChild(newScript);
+				}
+			} else {
+				// Always append inline scripts
+				const newScript = document.createElement('script');
+				newScript.textContent = script.textContent;
+				document.body.appendChild(newScript);
+			}
+		});
+	}
+
 
 	updateMeta(doc) {
 		const metaTags = document.querySelectorAll('meta[name="description"], meta[name="keywords"]');
@@ -98,16 +165,17 @@ class DynamicPageLoader {
 	}
 
 	fadeOut(element) {
-		element.style.transition = 'opacity 0.5s';
-		element.style.opacity = 0;
-		setTimeout(() => (element.style.display = 'none'), 500);
+		return new Promise(resolve => {
+			element.style.transition = 'opacity 0.5s';
+			element.style.opacity = 0;
+			// Wait for transition to complete
+			setTimeout(resolve, 500);
+		});
 	}
 
 	fadeIn(element) {
-		element.style.display = 'block';
-		element.style.opacity = 0;
 		element.style.transition = 'opacity 0.5s';
-		setTimeout(() => (element.style.opacity = 1), 10);
+		element.style.opacity = 1;
 	}
 }
 
