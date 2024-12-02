@@ -5,6 +5,8 @@ class DynamicPageLoader {
 		this.loadingElement = document.querySelector(config.loadingElement);
 		this.linkClass = config.linkClass;
 		this.dontReload = config.dontReload || [];
+		this.dontReloadCSS = config.dontReloadCSS || [];
+		this.dontReloadPreload = config.dontReloadPreload || []; // Add dontReloadPreload option
 
 		this.init();
 	}
@@ -86,9 +88,9 @@ class DynamicPageLoader {
 		// Get URLs of the new stylesheets
 		const newLinkHrefs = newLinks.map(link => link.href);
 
-		// Remove old links that are not in the new document
+		// Remove old links that are not in the new document and not in dontReloadCSS
 		existingLinks.forEach(link => {
-			if (!newLinkHrefs.includes(link.href)) {
+			if (!newLinkHrefs.includes(link.href) && !this.dontReloadCSS.includes(link.href)) {
 				link.remove();
 			}
 		});
@@ -102,8 +104,34 @@ class DynamicPageLoader {
 				document.head.appendChild(newLink);
 			}
 		});
-	}
 
+		// Handle preload links
+		const existingPreloads = Array.from(document.querySelectorAll('link[rel="preload"]'));
+		const newPreloads = Array.from(doc.querySelectorAll('link[rel="preload"]'));
+
+		// Get URLs of the new preload links
+		const newPreloadHrefs = newPreloads.map(link => link.href);
+
+		// Remove old preload links that are not in the new document and not in dontReloadPreload
+		existingPreloads.forEach(link => {
+			if (!newPreloadHrefs.includes(link.href) && !this.dontReloadPreload.includes(link.href)) {
+				link.remove();
+			}
+		});
+
+		// Add new preload links that are not already in the current document
+		newPreloads.forEach(link => {
+			if (!existingPreloads.some(existingLink => existingLink.href === link.href)) {
+				const newLink = document.createElement('link');
+				newLink.rel = 'preload';
+				newLink.href = link.href;
+				newLink.as = link.as;
+				newLink.type = link.type;
+				if (link.crossOrigin) newLink.crossOrigin = link.crossOrigin;
+				document.head.appendChild(newLink);
+			}
+		});
+	}
 
 	reloadScripts(doc) {
 		const loadedScripts = Array.from(document.querySelectorAll('script')).map((script) => script.src);
@@ -145,7 +173,6 @@ class DynamicPageLoader {
 			}
 		});
 	}
-
 
 	updateMeta(doc) {
 		const metaTags = document.querySelectorAll('meta[name="description"], meta[name="keywords"]');
